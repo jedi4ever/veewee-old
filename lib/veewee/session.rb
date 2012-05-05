@@ -351,13 +351,6 @@ module Veewee
 
             transaction(boxname,"#{counter}-#{postinstall_file}-#{checksums[counter]}",checksums) do
 
-                newcommand="#{@vboxcmd} storageattach '#{boxname}' --storagectl 'IDE Controller' --type dvddrive --port 1 --device 0 --medium emptydrive"
-                Veewee::Shell.execute("#{newcommand}")
-
-                verify_iso(iso_file, false, counter) # FIXME (subhobroto): might not be a good idea for large DVDs!
-
-                mount_isofile(boxname, iso_file)
-
                 Veewee::Ssh.when_ssh_login_works("localhost",ssh_options) do
                     begin
                       Veewee::Ssh.transfer_file("localhost",filename,File.basename(filename),ssh_options)
@@ -365,6 +358,13 @@ module Veewee
                       puts "error transferring file, possible not enough permissions to write?"
                       exit
                     end
+
+                    newcommand="#{@vboxcmd} storageattach '#{boxname}' --storagectl 'IDE Controller' --type dvddrive --port 1 --device 0 --medium emptydrive"
+                    Veewee::Shell.execute("#{newcommand}")
+
+                    verify_iso(iso_file, false, counter) # FIXME (subhobroto): might not be a good idea for large DVDs!
+
+                    mount_isofile(boxname, iso_file)
 
                     command=@definition[:sudo_cmd]
                     newcommand=command.gsub(/%p/,"#{@definition[:ssh_password]}")
