@@ -144,7 +144,7 @@ module Veewee
         puts "Not yet implemented"
     end
 
-    def self.verify_iso(filename,autodownload = false)
+    def self.verify_iso(filename,autodownload = false, dx = 0)
       if File.exists?(File.join(@iso_dir,filename))
         puts
         puts "Verifying the isofile #{filename} is ok."
@@ -155,16 +155,20 @@ module Veewee
         path2=Pathname.new(Dir.pwd)
         rel_path=path1.relative_path_from(path2).to_s
 
+        iso_src = @definition[:iso_srcs][dx] rescue @definition[:iso_src]
+        iso_md5 = @definition[:iso_md5s][dx] rescue @definition[:iso_md5]
+        iso_download_instructions = (@definition[:iso_download_instructions].is_a? Array) ? @definition[:iso_download_instructions][dx] : @definition[:iso_download_instructions]
+
         puts
         puts "We did not find an isofile in <currentdir>/iso. \n\nThe definition provided the following download information:"
-        unless "#{@definition[:iso_src]}"==""
-          puts "- Download url: #{@definition[:iso_src]}"
+        unless  iso_src == ""
+          puts "- Download url: #{iso_src}"
         end
-        puts "- Md5 Checksum: #{@definition[:iso_md5]}"
-        puts "#{@definition[:iso_download_instructions]}"
+        puts "- Md5 Checksum: #{iso_md5}"
+        puts iso_download_instructions
         puts
 
-        if @definition[:iso_src] == ""
+        if iso_src == ""
           puts "Please follow the instructions above:"
           puts "- to get the ISO"
           puts" - put it in <currentdir>/iso"
@@ -172,26 +176,22 @@ module Veewee
           puts
           exit
         else
-
-        question=ask("Download? (Yes/No)") {|q| q.default="No"}
-        if question.downcase == "yes"
-          if !File.exists?(@iso_dir)
-            puts "Creating an iso directory"
-            FileUtils.mkdir(@iso_dir)
-          end
-
-          download_progress(@definition[:iso_src],full_path)
-        else
-          puts "You have choosen for manual download: "
-          puts "curl -C - -L '#{@definition[:iso_src]}' -o '#{rel_path}'"
-          puts "md5 '#{rel_path}' "
-          puts
-          exit
+            question=ask("Download? (Yes/No)") {|q| q.default="No"}
+            if question.downcase == "yes"
+              if !File.exists?(@iso_dir)
+                puts "Creating an iso directory"
+                FileUtils.mkdir(@iso_dir)
+              end
+              download_progress(iso_src,full_path)
+            else
+              puts "You have choosen for manual download: "
+              puts "curl -C - -L '#{iso_src}' -o '#{rel_path}'"
+              puts "md5 '#{rel_path}' "
+              puts
+              exit
+            end
         end
-
       end
-      end
-
     end
 
     def self.export_box(boxname)
@@ -248,8 +248,12 @@ module Veewee
             sleep 3
         end
 
+        counter = 0
 
-        verify_iso(@definition[:iso_file])
+        iso_src = @definition[:iso_srcs][counter] rescue @definition[:iso_src]
+        iso_file = @definition[:iso_files][counter] rescue @definition[:iso_file]
+
+        verify_iso(iso_file, false, counter)
 
         if (options["force"]==false)
         else
@@ -277,7 +281,7 @@ module Veewee
             add_ide_controller(boxname)
             add_sata_controller(boxname)
             attach_disk(boxname)
-            mount_isofile(boxname,@definition[:iso_file])
+            mount_isofile(boxname, iso_file)
             add_ssh_nat_mapping(boxname)
 
             #Starting machine
@@ -300,22 +304,23 @@ module Veewee
             else
                 puts "Starting a webserver on port #{@definition[:kickstart_port]}"
                 #:kickstart_port => "7122", :kickstart_ip => self.local_ip, :kickstart_timeout => 1000,:kickstart_file => "preseed.cfg",
-		if kickstartfile.is_a? String
-			Veewee::Web.wait_for_request(kickstartfile,{:port => @definition[:kickstart_port],
-                                          :host => @definition[:kickstart_ip], :timeout => @definition[:kickstart_timeout],
-                                          :web_dir => File.join(@definition_dir,boxname)})
-		end
-		if kickstartfile.is_a? Array
-			kickstartfiles=kickstartfile
-			kickstartfiles.each do |kickfile|
-				Veewee::Web.wait_for_request(kickfile,{:port => @definition[:kickstart_port],
-                                          :host => @definition[:kickstart_ip], :timeout => @definition[:kickstart_timeout],
-                                          :web_dir => File.join(@definition_dir,boxname)})
-			end
-		end
+		        if kickstartfile.is_a? String
+			        Veewee::Web.wait_for_request(kickstartfile,{:port => @definition[:kickstart_port],
+                                                  :host => @definition[:kickstart_ip], :timeout => @definition[:kickstart_timeout],
+                                                  :web_dir => File.join(@definition_dir,boxname)})
+		        end
+		        if kickstartfile.is_a? Array
+			        kickstartfiles=kickstartfile
+			        kickstartfiles.each do |kickfile|
+				        Veewee::Web.wait_for_request(kickfile,{:port => @definition[:kickstart_port],
+                                                  :host => @definition[:kickstart_ip], :timeout => @definition[:kickstart_timeout],
+                                                  :web_dir => File.join(@definition_dir,boxname)})
+			        end
+		        end
             end
 
 
+=begin
             Veewee::Ssh.when_ssh_login_works("localhost",ssh_options) do
               #Transfer version of Virtualbox to $HOME/.vbox_version
               versionfile=Tempfile.open("vbox.version")
@@ -331,42 +336,51 @@ module Veewee
               versionfile.close
               versionfile.delete
             end
+=end
         end #initial Transaction
 
 
-               counter=1
-               @definition[:postinstall_files].each do |postinstall_file|
+        @definition[:postinstall_files].each do |postinstall_file|
 
+            counter+=1
 
-                 filename=File.join(@definition_dir,boxname,postinstall_file)
+            iso_src = @definition[:iso_srcs][counter] rescue @definition[:iso_src]
+            iso_file = @definition[:iso_files][counter] rescue @definition[:iso_file]
 
-                 transaction(boxname,"#{counter}-#{postinstall_file}-#{checksums[counter]}",checksums) do
+            filename=File.join(@definition_dir,boxname,postinstall_file)
 
-                   Veewee::Ssh.when_ssh_login_works("localhost",ssh_options) do
+            transaction(boxname,"#{counter}-#{postinstall_file}-#{checksums[counter]}",checksums) do
+
+                newcommand="#{@vboxcmd} storageattach '#{boxname}' --storagectl 'IDE Controller' --type dvddrive --port 1 --device 0 --medium emptydrive"
+                Veewee::Shell.execute("#{newcommand}")
+
+                verify_iso(iso_file, false, counter) # FIXME (subhobroto): might not be a good idea for large DVDs!
+
+                mount_isofile(boxname, iso_file)
+
+                Veewee::Ssh.when_ssh_login_works("localhost",ssh_options) do
                     begin
                       Veewee::Ssh.transfer_file("localhost",filename,File.basename(filename),ssh_options)
                     rescue RuntimeError
                       puts "error transferring file, possible not enough permissions to write?"
                       exit
                     end
+
                     command=@definition[:sudo_cmd]
                     newcommand=command.gsub(/%p/,"#{@definition[:ssh_password]}")
                     newcommand.gsub!(/%u/,"#{@definition[:ssh_user]}")
                     newcommand.gsub!(/%f/,"#{postinstall_file}")
-		    puts "***#{newcommand}"
+                    puts "***#{newcommand}"
                     Veewee::Ssh.execute("localhost","#{newcommand}",ssh_options)
-                    end
+                end
+            end
+        end
 
-                 end
-                 counter+=1
-
-               end
-
-          puts "#{boxname} was built successfully. "
-          puts ""
-          puts "Now you can: "
-          puts "- verify your box by running               : vagrant basebox validate #{boxname}"
-          puts "- export your vm to a .box file by running : vagrant basebox export   #{boxname}"
+        puts "#{boxname} was built successfully. "
+        puts ""
+        puts "Now you can: "
+        puts "- verify your box by running               : vagrant basebox validate #{boxname}"
+        puts "- export your vm to a .box file by running : vagrant basebox export   #{boxname}"
 
     end
 
